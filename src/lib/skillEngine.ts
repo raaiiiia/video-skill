@@ -16,7 +16,7 @@ export function confidenceProjection(skill: Skill) {
 }
 
 export function activeSkillAtTime(skills: Skill[], seconds: number) {
-  return skills.find((skill) => seconds >= skill.start && seconds <= skill.end) ?? skills[0] ?? null;
+  return skills.find((skill) => seconds >= skill.start && seconds <= skill.end) ?? null;
 }
 
 export function searchSkills(skills: Skill[], query: string): SearchResult[] {

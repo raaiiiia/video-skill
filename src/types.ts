@@ -36,8 +36,10 @@ export interface UploadItem {
   progress: number;
   status: "queued" | "extracting" | "asr" | "ocr" | "vision" | "graph" | "done";
   sourceUrl?: string;
+  mediaType?: string;
   note?: string;
   importedAt?: string;
+  temporary?: boolean;
 }
 
 export interface PipelineStage {

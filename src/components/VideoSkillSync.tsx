@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Clock, MousePointerClick, Play, Sparkles, VideoOff } from "lucide-react";
 import videojs from "video.js";
@@ -11,13 +11,15 @@ interface VideoSkillSyncProps {
   activeSkill: Skill | null;
   currentTime: number;
   videoSource: string | null;
+  videoType?: string;
   onTimeChange: (seconds: number) => void;
   onSelectSkill: (skill: Skill) => void;
 }
 
-export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, onTimeChange, onSelectSkill }: VideoSkillSyncProps) {
+export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, videoType, onTimeChange, onSelectSkill }: VideoSkillSyncProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<Player | null>(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
   const hasVideo = Boolean(videoSource);
 
   const handleTimeUpdate = useCallback(() => {
@@ -38,18 +40,26 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
         preload: "metadata",
       });
 
+    function handlePlayerError() {
+      setMediaError("视频没有加载成功。常见原因是链接不是视频文件直链、站点禁止跨域播放、需要登录授权，或当前浏览器不支持该编码格式。");
+    }
+
     playerRef.current = player;
+    setMediaError(null);
     player.pause();
     player.reset();
-    player.src({ src: videoSource, type: "video/mp4" });
+    player.error(undefined);
+    player.src(videoType ? { src: videoSource, type: videoType } : { src: videoSource });
     player.on("timeupdate", handleTimeUpdate);
+    player.on("error", handlePlayerError);
 
     return () => {
       player.off("timeupdate", handleTimeUpdate);
+      player.off("error", handlePlayerError);
       player.pause();
       player.reset();
     };
-  }, [handleTimeUpdate, videoSource]);
+  }, [handleTimeUpdate, videoSource, videoType]);
 
   useEffect(() => {
     return () => {
@@ -73,7 +83,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
         <div className="flex h-11 items-center justify-between border-b border-line px-4">
           <div>
             <h2 className="text-sm font-semibold text-ink">视频播放与操作识别</h2>
-            <p className="text-[11px] text-slate-500">固定播放器画布，上传或链接导入后同步 Skill 时间轴</p>
+            <p className="text-[11px] text-slate-500">播放器只加载当前视频源；切换视频时会清理临时对象 URL</p>
           </div>
           <div className="flex items-center gap-2 rounded-md bg-slate-100 px-2 py-1 font-mono text-xs text-slate-600">
             <Clock className="h-3.5 w-3.5" />
@@ -91,17 +101,18 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
                   <VideoOff className="h-6 w-6 text-white/65" />
                 </div>
                 <p className="mt-4 text-sm font-semibold text-white">等待视频输入</p>
-                <p className="mt-1 max-w-sm text-xs leading-5 text-white/52">上传本地视频或粘贴公开视频链接后，这里会在同一黑色底座内加载播放器，不再挤压下方识别菜单。</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-white/52">选择本地视频或粘贴可直接播放的媒体文件 URL 后，播放器会在这里加载视频。</p>
               </div>
             )}
           </div>
+          {mediaError && <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{mediaError}</p>}
         </div>
 
         <div className="grid gap-3 border-t border-line p-4 md:grid-cols-3">
           {recognitionCards.map((card) => (
             <div key={card.title} className="min-h-[86px] rounded-md border border-line bg-[#FBFCFE] p-3">
               <p className="text-xs font-semibold text-ink">{card.title}</p>
-              <p className="mt-1 text-[11px] leading-4 text-slate-500">{hasVideo ? card.ready : "暂无视频，等待识别结果"}</p>
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">{hasVideo ? card.ready : "暂无视频，等待真实识别结果。"}</p>
             </div>
           ))}
         </div>
@@ -110,7 +121,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
       <div className="rounded-lg border border-line bg-white shadow-command">
         <div className="flex h-11 items-center justify-between border-b border-line px-4">
           <h2 className="text-sm font-semibold text-ink">Skill 实时显示面板</h2>
-          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Auto-scroll</span>
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Live</span>
         </div>
         <div className="space-y-3 p-4">
           {skills.length === 0 && (
@@ -119,8 +130,8 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
                 <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10">
                   <Play className="h-5 w-5 text-primary" />
                 </div>
-                <p className="mt-4 text-sm font-semibold text-ink">还没有生成 Skill</p>
-                <p className="mt-2 text-xs leading-5 text-slate-500">视频解析完成后，操作片段会按时间自动出现在这里，并与播放器时间同步。</p>
+                <p className="mt-4 text-sm font-semibold text-ink">还没有真实 Skill</p>
+                <p className="mt-2 text-xs leading-5 text-slate-500">当前版本不会自动填充演示 skill。只有真实解析结果写入后，这里才会显示对应片段。</p>
               </div>
             </div>
           )}
@@ -175,14 +186,14 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
 const recognitionCards = [
   {
     title: "界面识别",
-    ready: "Photoshop 菜单 / 工具栏 / 图层面板",
+    ready: "视频已加载；等待真实视觉识别结果。",
   },
   {
     title: "操作行为",
-    ready: "曲线调整层 / 蒙版 / 画笔擦除",
+    ready: "视频已加载；尚未写入真实操作片段。",
   },
   {
     title: "快捷键与参数",
-    ready: "Ctrl+M / B / Alt 拖动 / Blend If",
+    ready: "视频已加载；尚未写入真实参数证据。",
   },
 ];

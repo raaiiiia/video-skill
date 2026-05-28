@@ -3,10 +3,19 @@ import type { Skill } from "../types";
 import { confidenceProjection } from "../lib/skillEngine";
 
 interface OptimizationPanelProps {
-  skill: Skill;
+  skill: Skill | null;
 }
 
 export function OptimizationPanel({ skill }: OptimizationPanelProps) {
+  if (!skill) {
+    return (
+      <section className="rounded-lg border border-line bg-white p-4 shadow-command">
+        <h2 className="text-sm font-semibold text-ink">Skill 自我优化系统</h2>
+        <p className="mt-2 text-xs leading-5 text-slate-500">当前没有真实 Skill 数据。为避免展示虚假结论，优化面板会在真实解析结果写入后再计算置信度、聚类和升级建议。</p>
+      </section>
+    );
+  }
+
   const projection = confidenceProjection(skill);
   const rows = [
     ["初始值", projection.base],
@@ -14,6 +23,13 @@ export function OptimizationPanel({ skill }: OptimizationPanelProps) {
     ["多视频验证", projection.multiVideo],
     ["高级操作引用", projection.advanced],
   ] as const;
+  const skillOutline = {
+    skill: skill.skill_name,
+    software: skill.software,
+    level: skill.level,
+    tags: skill.tags,
+    evidenceCount: skill.evidenceCount,
+  };
 
   return (
     <section className="grid gap-4 lg:grid-cols-[1fr_420px]">
@@ -27,10 +43,10 @@ export function OptimizationPanel({ skill }: OptimizationPanelProps) {
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           {[
-            ["相同技能合并", "曲线调亮 → 曲线曝光控制", GitMerge],
-            ["相近技能聚类", "蒙版 / Blend If / 亮度蒙版", Network],
-            ["高级变体升级", "局部曝光 → Blend If 高级控制", ArrowUpRight],
-            ["人工修正增益", "专家修正后 +0.3 Confidence", ShieldCheck],
+            ["相同技能合并", `基于 ${skill.evidenceCount} 条真实证据判断是否去重`, GitMerge],
+            ["相近技能聚类", skill.tags.length ? skill.tags.join(" / ") : "等待更多标签证据", Network],
+            ["高级变体升级", `${skill.level} 级别；仅按当前 skill 元数据评估`, ArrowUpRight],
+            ["人工修正增益", `当前置信度 ${(skill.confidence * 100).toFixed(0)}%`, ShieldCheck],
           ].map(([title, desc, Icon]) => (
             <div key={title as string} className="rounded-md border border-line bg-[#FBFCFE] p-3">
               <Icon className="mb-3 h-5 w-5 text-primary" />
@@ -40,15 +56,8 @@ export function OptimizationPanel({ skill }: OptimizationPanelProps) {
           ))}
         </div>
         <div className="mt-4 rounded-md border border-line bg-[#FBFCFE] p-4">
-          <p className="text-xs font-semibold text-ink">自动升级示例</p>
-          <pre className="mt-3 overflow-auto rounded bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{`曝光控制
-  ├── 曲线调整
-  │   ├── 全局曝光
-  │   ├── 局部曝光
-  │   └── Blend If 高级控制
-  └── Camera Raw
-      ├── 高光恢复
-      └── 阴影细节平衡`}</pre>
+          <p className="text-xs font-semibold text-ink">当前 Skill 结构</p>
+          <pre className="mt-3 overflow-auto rounded bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{JSON.stringify(skillOutline, null, 2)}</pre>
         </div>
       </div>
       <div className="rounded-lg border border-line bg-white p-4 shadow-command">

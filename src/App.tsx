@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { ArchitecturePanel } from "./components/ArchitecturePanel";
@@ -8,13 +8,21 @@ import { SearchResults } from "./components/SearchResults";
 import { SkillTree } from "./components/SkillTree";
 import { UploadPanel } from "./components/UploadPanel";
 import { VideoSkillSync } from "./components/VideoSkillSync";
-import { pipelineStages, skills, skillTree } from "./data/mockData";
 import { activeSkillAtTime, searchSkills } from "./lib/skillEngine";
-import type { Skill, UploadItem } from "./types";
+import type { PipelineStage, Skill, SkillNode, UploadItem } from "./types";
 
-const demoVideoSource = "https://vjs.zencdn.net/v/oceans.mp4";
 const savedSkillsKey = "ps-skill.savedSkills";
 const savedVideosKey = "ps-skill.savedVideoLinks";
+const legacyDemoVideoSource = "https://vjs.zencdn.net/v/oceans.mp4";
+const legacyMockSkillIds = new Set(["skill_001", "skill_002", "skill_003", "skill_004"]);
+
+const pipelineStages: PipelineStage[] = [
+  { id: "frames", label: "视频抽帧", detail: "等待真实后端任务返回抽帧进度", progress: 0 },
+  { id: "asr", label: "语音识别", detail: "等待真实后端任务返回语音识别进度", progress: 0 },
+  { id: "ocr", label: "OCR 提取", detail: "等待真实后端任务返回文字识别进度", progress: 0 },
+  { id: "vision", label: "界面识别", detail: "等待真实后端任务返回视觉识别进度", progress: 0 },
+  { id: "graph", label: "Skill 生成", detail: "等待真实后端任务返回 Skill 结果", progress: 0 },
+];
 
 function readSavedJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -26,61 +34,162 @@ function readSavedJson<T>(key: string, fallback: T): T {
   }
 }
 
+function sanitizeSavedSkills(items: Skill[]) {
+  return items.filter((skill) => !legacyMockSkillIds.has(skill.id));
+}
+
+function sanitizeSavedVideos(items: UploadItem[]) {
+  return items
+    .filter((item) => item.sourceUrl && item.sourceUrl !== legacyDemoVideoSource)
+    .map((item) => ({
+      ...item,
+      name: item.sourceUrl ?? item.name,
+      note: item.sourceUrl ?? item.note,
+      temporary: false,
+      progress: 100,
+      status: item.status ?? "done",
+    }));
+}
+
 function buildVideoNote(sourceUrl: string, recordedSkills: Skill[]) {
   const primary = recordedSkills
     .slice(0, 2)
     .map((skill) => skill.skill_name)
     .join(" / ");
-  return `${sourceUrl} (${primary || "Skill analyzed"})`;
+  return primary ? `${sourceUrl} (${primary})` : sourceUrl;
+}
+
+function buildSkillTreeFromSkills(recordedSkills: Skill[]): SkillNode[] {
+  const softwareMap = new Map<string, SkillNode>();
+
+  for (const skill of recordedSkills) {
+    const softwareNode =
+      softwareMap.get(skill.software) ??
+      ({
+        id: `software_${skill.software}`,
+        name: skill.software,
+        count: 0,
+        confidence: 0,
+        children: [],
+      } satisfies SkillNode);
+
+    softwareNode.count += 1;
+    softwareNode.confidence += skill.confidence;
+
+    const tagName = skill.tags[0] ?? "未分类";
+    let tagNode = softwareNode.children?.find((node) => node.name === tagName);
+    if (!tagNode) {
+      tagNode = {
+        id: `tag_${skill.software}_${tagName}`,
+        name: tagName,
+        count: 0,
+        confidence: 0,
+        children: [],
+      };
+      softwareNode.children?.push(tagNode);
+    }
+
+    tagNode.count += 1;
+    tagNode.confidence += skill.confidence;
+    tagNode.children?.push({
+      id: `skill_node_${skill.id}`,
+      name: skill.skill_name,
+      count: 1,
+      confidence: skill.confidence,
+      skillId: skill.id,
+    });
+
+    softwareMap.set(skill.software, softwareNode);
+  }
+
+  return Array.from(softwareMap.values()).map((softwareNode) => ({
+    ...softwareNode,
+    confidence: softwareNode.count ? softwareNode.confidence / softwareNode.count : 0,
+    children: softwareNode.children?.map((tagNode) => ({
+      ...tagNode,
+      confidence: tagNode.count ? tagNode.confidence / tagNode.count : 0,
+    })),
+  }));
+}
+
+interface VideoImportPayload {
+  sourceUrl: string;
+  name: string;
+  size: string;
+  mediaType?: string;
+  temporary?: boolean;
 }
 
 export function App() {
   const [query, setQuery] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-  const [savedSkills, setSavedSkills] = useState<Skill[]>(() => readSavedJson<Skill[]>(savedSkillsKey, []));
-  const [savedVideos, setSavedVideos] = useState<UploadItem[]>(() => readSavedJson<UploadItem[]>(savedVideosKey, []));
+  const [savedSkills, setSavedSkills] = useState<Skill[]>(() => sanitizeSavedSkills(readSavedJson<Skill[]>(savedSkillsKey, [])));
+  const [savedVideos, setSavedVideos] = useState<UploadItem[]>(() => sanitizeSavedVideos(readSavedJson<UploadItem[]>(savedVideosKey, [])));
   const [videoSource, setVideoSource] = useState<string | null>(null);
+  const [videoType, setVideoType] = useState<string | undefined>(undefined);
   const [systemOpen, setSystemOpen] = useState(false);
+  const temporaryVideoUrl = useRef<string | null>(null);
 
   const hasWorkspaceData = savedSkills.length > 0 || savedVideos.length > 0;
   const visibleSkills = savedSkills;
-  const visibleTree = hasWorkspaceData ? skillTree : [];
+  const visibleTree = useMemo(() => buildSkillTreeFromSkills(visibleSkills), [visibleSkills]);
   const visibleUploads = savedVideos;
   const timeSkill = activeSkillAtTime(visibleSkills, currentTime);
   const activeSkill = visibleSkills.find((skill) => skill.id === selectedSkillId) ?? timeSkill;
   const results = useMemo(() => searchSkills(visibleSkills, query), [query, visibleSkills]);
-  const drawerSkill = activeSkill ?? skills[0];
 
   useEffect(() => {
     window.localStorage.setItem(savedSkillsKey, JSON.stringify(savedSkills));
   }, [savedSkills]);
 
   useEffect(() => {
-    window.localStorage.setItem(savedVideosKey, JSON.stringify(savedVideos));
+    const persistentVideos = savedVideos
+      .filter((item) => !item.temporary && item.sourceUrl)
+      .map((item) => ({
+        ...item,
+        name: item.sourceUrl ?? item.name,
+        note: item.sourceUrl ?? item.note,
+      }));
+    window.localStorage.setItem(savedVideosKey, JSON.stringify(persistentVideos));
   }, [savedVideos]);
 
-  function startDemo(sourceUrl?: string) {
-    const source = sourceUrl?.trim() || demoVideoSource;
-    const recordedSkills = skills;
-    const note = buildVideoNote(source, recordedSkills);
+  useEffect(() => {
+    return () => {
+      if (temporaryVideoUrl.current) URL.revokeObjectURL(temporaryVideoUrl.current);
+    };
+  }, []);
+
+  function importVideo({ sourceUrl, name, size, mediaType, temporary }: VideoImportPayload) {
+    const source = sourceUrl.trim();
+    if (!source) return;
+
+    if (temporaryVideoUrl.current && temporaryVideoUrl.current !== source) {
+      URL.revokeObjectURL(temporaryVideoUrl.current);
+      temporaryVideoUrl.current = null;
+    }
+    if (temporary) temporaryVideoUrl.current = source;
+
+    const note = buildVideoNote(name || source, savedSkills);
     const nextVideo: UploadItem = {
       id: `link_${Date.now()}`,
       name: note,
-      size: sourceUrl ? "link only" : "demo stream",
+      size,
       progress: 100,
       status: "done",
-      sourceUrl: source,
+      sourceUrl: temporary ? undefined : source,
+      mediaType,
       note,
       importedAt: new Date().toISOString(),
+      temporary,
     };
 
-    setSavedSkills(recordedSkills);
-    setSavedVideos((previous) => [nextVideo, ...previous.filter((item) => item.sourceUrl !== source)]);
+    setSavedVideos((previous) => [nextVideo, ...previous.filter((item) => item.sourceUrl !== source || temporary)]);
     setVideoSource(null);
+    setVideoType(mediaType);
     window.setTimeout(() => setVideoSource(source), 0);
-    setSelectedSkillId(recordedSkills[0]?.id ?? null);
-    setCurrentTime(recordedSkills[0]?.start ?? 0);
+    setSelectedSkillId(null);
+    setCurrentTime(0);
   }
 
   function selectSkill(skillId: string) {
@@ -118,7 +227,7 @@ export function App() {
           </div>
         </motion.section>
 
-        <UploadPanel uploads={visibleUploads} stages={pipelineStages} hasWorkspaceData={hasWorkspaceData} onStartDemo={startDemo} />
+        <UploadPanel uploads={visibleUploads} stages={pipelineStages} hasWorkspaceData={hasWorkspaceData} onImportVideo={importVideo} />
 
         <div className="grid gap-4 xl:grid-cols-[310px_minmax(0,1fr)]">
           <div className="min-h-[650px]">
@@ -129,6 +238,7 @@ export function App() {
             activeSkill={activeSkill}
             currentTime={currentTime}
             videoSource={videoSource}
+            videoType={videoType}
             onTimeChange={(seconds) => {
               setCurrentTime(seconds);
               const matched = activeSkillAtTime(visibleSkills, seconds);
@@ -161,7 +271,7 @@ export function App() {
                 </button>
               </div>
               <div className="space-y-4 p-4">
-                <OptimizationPanel skill={drawerSkill} />
+                <OptimizationPanel skill={activeSkill} />
                 <ArchitecturePanel />
               </div>
             </motion.aside>
