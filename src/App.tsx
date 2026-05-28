@@ -48,6 +48,7 @@ function sanitizeSavedVideos(items: UploadItem[]) {
       temporary: false,
       progress: 100,
       status: item.status ?? "done",
+      sourceKind: item.sourceKind ?? (item.embedUrl ? "webpage" : "direct"),
     }));
 }
 
@@ -116,7 +117,9 @@ interface VideoImportPayload {
   sourceUrl: string;
   name: string;
   size: string;
+  embedUrl?: string;
   mediaType?: string;
+  sourceKind?: UploadItem["sourceKind"];
   temporary?: boolean;
 }
 
@@ -127,6 +130,8 @@ export function App() {
   const [savedSkills, setSavedSkills] = useState<Skill[]>(() => sanitizeSavedSkills(readSavedJson<Skill[]>(savedSkillsKey, [])));
   const [savedVideos, setSavedVideos] = useState<UploadItem[]>(() => sanitizeSavedVideos(readSavedJson<UploadItem[]>(savedVideosKey, [])));
   const [videoSource, setVideoSource] = useState<string | null>(null);
+  const [videoEmbedUrl, setVideoEmbedUrl] = useState<string | undefined>(undefined);
+  const [videoSourceKind, setVideoSourceKind] = useState<UploadItem["sourceKind"] | undefined>(undefined);
   const [videoType, setVideoType] = useState<string | undefined>(undefined);
   const [systemOpen, setSystemOpen] = useState(false);
   const temporaryVideoUrl = useRef<string | null>(null);
@@ -160,9 +165,10 @@ export function App() {
     };
   }, []);
 
-  function importVideo({ sourceUrl, name, size, mediaType, temporary }: VideoImportPayload) {
+  function importVideo({ sourceUrl, name, size, embedUrl, mediaType, sourceKind, temporary }: VideoImportPayload) {
     const source = sourceUrl.trim();
     if (!source) return;
+    const nextSourceKind = sourceKind ?? (temporary ? "file" : "direct");
 
     if (temporaryVideoUrl.current && temporaryVideoUrl.current !== source) {
       URL.revokeObjectURL(temporaryVideoUrl.current);
@@ -178,7 +184,9 @@ export function App() {
       progress: 100,
       status: "done",
       sourceUrl: temporary ? undefined : source,
+      embedUrl,
       mediaType,
+      sourceKind: nextSourceKind,
       note,
       importedAt: new Date().toISOString(),
       temporary,
@@ -186,6 +194,8 @@ export function App() {
 
     setSavedVideos((previous) => [nextVideo, ...previous.filter((item) => item.sourceUrl !== source || temporary)]);
     setVideoSource(null);
+    setVideoEmbedUrl(embedUrl);
+    setVideoSourceKind(nextSourceKind);
     setVideoType(mediaType);
     window.setTimeout(() => setVideoSource(source), 0);
     setSelectedSkillId(null);
@@ -238,6 +248,8 @@ export function App() {
             activeSkill={activeSkill}
             currentTime={currentTime}
             videoSource={videoSource}
+            videoEmbedUrl={videoEmbedUrl}
+            sourceKind={videoSourceKind}
             videoType={videoType}
             onTimeChange={(seconds) => {
               setCurrentTime(seconds);

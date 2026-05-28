@@ -36,7 +36,9 @@ export interface UploadItem {
   progress: number;
   status: "queued" | "extracting" | "asr" | "ocr" | "vision" | "graph" | "done";
   sourceUrl?: string;
+  embedUrl?: string;
   mediaType?: string;
+  sourceKind?: "file" | "direct" | "webpage";
   note?: string;
   importedAt?: string;
   temporary?: boolean;

@@ -7,7 +7,9 @@ interface VideoImportPayload {
   sourceUrl: string;
   name: string;
   size: string;
+  embedUrl?: string;
   mediaType?: string;
+  sourceKind?: UploadItem["sourceKind"];
   temporary?: boolean;
 }
 
@@ -19,7 +21,6 @@ interface UploadPanelProps {
 }
 
 const directMediaPattern = /\.(mp4|m4v|webm|ogv|ogg|mov|m3u8)(\?.*)?$/i;
-const knownPageHosts = ["youtube.com", "youtu.be", "bilibili.com", "vimeo.com", "douyin.com", "tiktok.com"];
 
 function formatFileSize(bytes: number) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -36,38 +37,76 @@ function inferVideoType(url: string) {
   return undefined;
 }
 
-function isKnownVideoPage(url: string) {
+function getYouTubeVideoId(url: URL) {
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "youtu.be") return url.pathname.split("/").filter(Boolean)[0];
+  if (!host.endsWith("youtube.com")) return null;
+  if (url.pathname === "/watch") return url.searchParams.get("v");
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (["shorts", "embed", "live"].includes(parts[0])) return parts[1];
+  return null;
+}
+
+function parseVideoPage(url: string): { platform: string; embedUrl?: string } | null {
   try {
-    const host = new URL(url).hostname.replace(/^www\./, "");
-    return knownPageHosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "");
+
+    const youtubeId = getYouTubeVideoId(parsed);
+    if (youtubeId) return { platform: "YouTube", embedUrl: `https://www.youtube.com/embed/${youtubeId}` };
+
+    if (host === "vimeo.com" || host.endsWith(".vimeo.com")) {
+      const videoId = parsed.pathname.split("/").find((part) => /^\d+$/.test(part));
+      if (videoId) return { platform: "Vimeo", embedUrl: `https://player.vimeo.com/video/${videoId}` };
+      return { platform: "Vimeo" };
+    }
+
+    if (host === "bilibili.com" || host.endsWith(".bilibili.com")) {
+      const bvid = parsed.pathname.match(/\/video\/(BV[0-9A-Za-z]+)/)?.[1] ?? parsed.searchParams.get("bvid");
+      const aid = parsed.pathname.match(/\/video\/av(\d+)/i)?.[1] ?? parsed.searchParams.get("aid");
+      if (bvid) return { platform: "Bilibili", embedUrl: `https://player.bilibili.com/player.html?bvid=${bvid}&autoplay=0` };
+      if (aid) return { platform: "Bilibili", embedUrl: `https://player.bilibili.com/player.html?aid=${aid}&autoplay=0` };
+      return { platform: "Bilibili" };
+    }
+
+    if (host === "douyin.com" || host.endsWith(".douyin.com")) return { platform: "Douyin" };
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")) return { platform: "TikTok" };
+    return null;
   } catch {
-    return false;
+    return null;
   }
 }
 
 export function UploadPanel({ uploads, stages, hasWorkspaceData, onImportVideo }: UploadPanelProps) {
   const [linkUrl, setLinkUrl] = useState("");
-  const [linkStatus, setLinkStatus] = useState("等待输入可直接播放的视频文件 URL，或选择本地视频文件。");
+  const [linkStatus, setLinkStatus] = useState("等待输入视频直链或可嵌入的视频网页链接，也可以选择本地视频文件。");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   function handleLinkImport() {
     const sourceUrl = linkUrl.trim();
     if (!sourceUrl) {
-      setLinkStatus("请先粘贴一个视频直链。");
+      setLinkStatus("请先粘贴一个视频链接。");
       return;
     }
 
-    if (isKnownVideoPage(sourceUrl) && !directMediaPattern.test(sourceUrl)) {
-      setLinkStatus("这是视频网页链接，不是可直接播放的媒体文件地址。请上传本地文件，或使用以 .mp4 / .webm / .ogg / .m3u8 结尾的直链。");
-      return;
+    const webpageVideo = directMediaPattern.test(sourceUrl) ? null : parseVideoPage(sourceUrl);
+    const sourceKind: UploadItem["sourceKind"] = webpageVideo ? "webpage" : "direct";
+
+    if (webpageVideo?.embedUrl) {
+      setLinkStatus(`已嵌入 ${webpageVideo.platform} 网页播放器；本站只保存链接，不下载或存储视频文件。`);
+    } else if (webpageVideo) {
+      setLinkStatus(`已记录 ${webpageVideo.platform} 网页链接；该平台暂不能仅靠前端嵌入解析，等待真实后端/API 生成 skill。`);
+    } else {
+      setLinkStatus(directMediaPattern.test(sourceUrl) ? "已加载视频直链；不会下载或存储视频文件。" : "已记录链接；如果它不是媒体直链或可嵌入视频网页，前端不会伪造播放或 skill。");
     }
 
-    setLinkStatus(directMediaPattern.test(sourceUrl) ? "已加载视频直链；不会下载或存储视频文件。" : "已尝试加载该链接；如果服务器返回的不是视频媒体，播放器会拒绝播放。");
     onImportVideo({
       sourceUrl,
       name: sourceUrl,
       size: "link only",
-      mediaType: inferVideoType(sourceUrl),
+      embedUrl: webpageVideo?.embedUrl,
+      mediaType: sourceKind === "direct" ? inferVideoType(sourceUrl) : undefined,
+      sourceKind,
       temporary: false,
     });
   }
@@ -86,6 +125,7 @@ export function UploadPanel({ uploads, stages, hasWorkspaceData, onImportVideo }
       name: file.name,
       size: formatFileSize(file.size),
       mediaType: file.type || inferVideoType(file.name),
+      sourceKind: "file",
       temporary: true,
     });
   }
@@ -109,13 +149,13 @@ export function UploadPanel({ uploads, stages, hasWorkspaceData, onImportVideo }
         <div className="mt-3 rounded-md border border-line bg-[#FBFCFE] p-3">
           <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-ink">
             <Globe2 className="h-4 w-4 text-primary" />
-            从媒体直链加载视频
+            从链接加载视频
           </div>
           <div className="flex gap-2">
             <input
               value={linkUrl}
               onChange={(event) => setLinkUrl(event.target.value)}
-              placeholder="粘贴 .mp4 / .webm / .ogg / .m3u8 视频直链"
+              placeholder="粘贴 YouTube / B站 / Vimeo 页面，或 .mp4 / .webm 直链"
               className="h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-xs outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
             />
             <button onClick={handleLinkImport} className="grid h-9 w-9 place-items-center rounded-md bg-primary text-white hover:bg-[#106EBE]" aria-label="加载视频链接">
@@ -153,7 +193,7 @@ export function UploadPanel({ uploads, stages, hasWorkspaceData, onImportVideo }
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-ink">处理流水线</h2>
-            <p className="text-xs text-slate-500">当前前端只负责加载视频；Skill 生成需要真实后端结果写入</p>
+            <p className="text-xs text-slate-500">当前前端只负责加载视频；Skill 生成需要真实后端或平台 API 结果写入。</p>
           </div>
           <span className={`rounded-full px-3 py-1 text-xs font-semibold ${hasWorkspaceData ? "bg-primary/10 text-primary" : "bg-slate-100 text-slate-500"}`}>
             {hasWorkspaceData ? "Video loaded" : "Idle"}

@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Clock, MousePointerClick, Play, Sparkles, VideoOff } from "lucide-react";
 import videojs from "video.js";
 import type Player from "video.js/dist/types/player";
-import type { Skill } from "../types";
+import type { Skill, UploadItem } from "../types";
 import { formatTime } from "../lib/skillEngine";
 
 interface VideoSkillSyncProps {
@@ -11,16 +11,20 @@ interface VideoSkillSyncProps {
   activeSkill: Skill | null;
   currentTime: number;
   videoSource: string | null;
+  videoEmbedUrl?: string;
+  sourceKind?: UploadItem["sourceKind"];
   videoType?: string;
   onTimeChange: (seconds: number) => void;
   onSelectSkill: (skill: Skill) => void;
 }
 
-export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, videoType, onTimeChange, onSelectSkill }: VideoSkillSyncProps) {
+export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, videoEmbedUrl, sourceKind, videoType, onTimeChange, onSelectSkill }: VideoSkillSyncProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const playerRef = useRef<Player | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const isWebpageVideo = sourceKind === "webpage";
   const hasVideo = Boolean(videoSource);
+  const hasEmbeddedVideo = Boolean(isWebpageVideo && videoEmbedUrl);
 
   const handleTimeUpdate = useCallback(() => {
     const player = playerRef.current;
@@ -29,6 +33,13 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
   }, [onTimeChange]);
 
   useEffect(() => {
+    if (isWebpageVideo) {
+      playerRef.current?.pause();
+      playerRef.current?.reset();
+      setMediaError(null);
+      return;
+    }
+
     if (!videoRef.current || !videoSource) return;
 
     const player =
@@ -59,7 +70,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
       player.pause();
       player.reset();
     };
-  }, [handleTimeUpdate, videoSource, videoType]);
+  }, [handleTimeUpdate, isWebpageVideo, videoSource, videoType]);
 
   useEffect(() => {
     return () => {
@@ -72,7 +83,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
 
   function jumpTo(skill: Skill) {
     onSelectSkill(skill);
-    if (!playerRef.current) return;
+    if (!playerRef.current || isWebpageVideo) return;
     playerRef.current.currentTime(skill.start);
     void playerRef.current.play();
   }
@@ -93,7 +104,24 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
 
         <div className="bg-[#05070B] p-4">
           <div className="relative grid aspect-video min-h-[360px] overflow-hidden rounded-md bg-black ring-1 ring-white/10">
-            {hasVideo ? (
+            {hasEmbeddedVideo ? (
+              <iframe
+                src={videoEmbedUrl}
+                title="Embedded video"
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            ) : hasVideo && isWebpageVideo ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
+                <div className="grid h-14 w-14 place-items-center rounded-full bg-white/8 ring-1 ring-white/12">
+                  <VideoOff className="h-6 w-6 text-white/65" />
+                </div>
+                <p className="mt-4 text-sm font-semibold text-white">网页链接已记录</p>
+                <p className="mt-1 max-w-md text-xs leading-5 text-white/52">该平台暂不能只靠前端嵌入播放或解析。系统不会下载视频，也不会伪造 skill；需要真实后端、平台 API、字幕或视觉分析结果写入。</p>
+              </div>
+            ) : hasVideo ? (
               <video ref={videoRef} className="video-js vjs-big-play-centered h-full w-full" />
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
@@ -101,11 +129,12 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
                   <VideoOff className="h-6 w-6 text-white/65" />
                 </div>
                 <p className="mt-4 text-sm font-semibold text-white">等待视频输入</p>
-                <p className="mt-1 max-w-sm text-xs leading-5 text-white/52">选择本地视频或粘贴可直接播放的媒体文件 URL 后，播放器会在这里加载视频。</p>
+                <p className="mt-1 max-w-sm text-xs leading-5 text-white/52">选择本地视频、粘贴媒体直链或支持嵌入的视频网页链接后，播放器会在这里加载视频。</p>
               </div>
             )}
           </div>
           {mediaError && <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{mediaError}</p>}
+          {hasEmbeddedVideo && <p className="mt-3 rounded-md border border-line bg-white/5 px-3 py-2 text-xs leading-5 text-white/70">网页播放器由原平台加载，本站只保存链接和嵌入地址。跨域 iframe 不能直接读取逐帧画面或播放时间，Skill 生成仍需要真实后端/API 结果。</p>}
         </div>
 
         <div className="grid gap-3 border-t border-line p-4 md:grid-cols-3">
