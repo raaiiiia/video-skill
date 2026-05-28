@@ -34,7 +34,7 @@ export interface UploadItem {
   name: string;
   size: string;
   progress: number;
-  status: "queued" | "extracting" | "asr" | "ocr" | "vision" | "graph" | "done";
+  status: "queued" | "extracting" | "asr" | "ocr" | "vision" | "graph" | "done" | "needs_provider_data" | "needs_media_access" | "backend_error";
   sourceUrl?: string;
   embedUrl?: string;
   mediaType?: string;
@@ -42,6 +42,8 @@ export interface UploadItem {
   note?: string;
   importedAt?: string;
   temporary?: boolean;
+  backendJobId?: string;
+  analysisMessage?: string;
 }
 
 export interface PipelineStage {

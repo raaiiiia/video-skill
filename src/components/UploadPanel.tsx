@@ -178,6 +178,7 @@ export function UploadPanel({ uploads, stages, hasWorkspaceData, onImportVideo }
                   <p className="text-[11px] text-slate-500">
                     {item.size} / {item.temporary ? "临时加载" : statusLabel[item.status]}
                   </p>
+                  {item.analysisMessage && <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{item.analysisMessage}</p>}
                 </div>
                 <span className="font-mono text-xs text-slate-600">{item.progress}%</span>
               </div>
@@ -232,4 +233,7 @@ const statusLabel: Record<UploadItem["status"], string> = {
   vision: "界面识别",
   graph: "知识图谱生成",
   done: "已记录",
+  needs_provider_data: "等待平台数据",
+  needs_media_access: "等待媒体证据",
+  backend_error: "后端未连接",
 };

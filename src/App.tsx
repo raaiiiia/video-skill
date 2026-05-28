@@ -8,6 +8,7 @@ import { SearchResults } from "./components/SearchResults";
 import { SkillTree } from "./components/SkillTree";
 import { UploadPanel } from "./components/UploadPanel";
 import { VideoSkillSync } from "./components/VideoSkillSync";
+import { analyzeVideoLink } from "./lib/backend";
 import { activeSkillAtTime, searchSkills } from "./lib/skillEngine";
 import type { PipelineStage, Skill, SkillNode, UploadItem } from "./types";
 
@@ -58,6 +59,12 @@ function buildVideoNote(sourceUrl: string, recordedSkills: Skill[]) {
     .map((skill) => skill.skill_name)
     .join(" / ");
   return primary ? `${sourceUrl} (${primary})` : sourceUrl;
+}
+
+function mergeSkills(previous: Skill[], incoming: Skill[]) {
+  const byId = new Map(previous.map((skill) => [skill.id, skill]));
+  incoming.forEach((skill) => byId.set(skill.id, skill));
+  return Array.from(byId.values());
 }
 
 function buildSkillTreeFromSkills(recordedSkills: Skill[]): SkillNode[] {
@@ -176,13 +183,14 @@ export function App() {
     }
     if (temporary) temporaryVideoUrl.current = source;
 
-    const note = buildVideoNote(name || source, savedSkills);
+    const videoId = `link_${Date.now()}`;
+    const note = name || source;
     const nextVideo: UploadItem = {
-      id: `link_${Date.now()}`,
+      id: videoId,
       name: note,
       size,
-      progress: 100,
-      status: "done",
+      progress: temporary ? 100 : 5,
+      status: temporary ? "done" : "queued",
       sourceUrl: temporary ? undefined : source,
       embedUrl,
       mediaType,
@@ -200,6 +208,45 @@ export function App() {
     window.setTimeout(() => setVideoSource(source), 0);
     setSelectedSkillId(null);
     setCurrentTime(0);
+
+    if (temporary) return;
+
+    void analyzeVideoLink({ sourceUrl: source, embedUrl, sourceKind: nextSourceKind })
+      .then((result) => {
+        if (result.skills.length > 0) {
+          setSavedSkills((previous) => mergeSkills(previous, result.skills));
+        }
+        setSavedVideos((previous) =>
+          previous.map((item) => {
+            if (item.id !== videoId) return item;
+            const nextNote = result.skills.length > 0 ? buildVideoNote(source, result.skills) : source;
+            return {
+              ...item,
+              name: nextNote,
+              note: nextNote,
+              progress: result.skills.length > 0 ? 100 : 0,
+              status: result.skills.length > 0 ? "done" : (result.status as UploadItem["status"]),
+              backendJobId: result.job_id,
+              analysisMessage: result.message,
+            };
+          }),
+        );
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Backend analysis request failed";
+        setSavedVideos((previous) =>
+          previous.map((item) =>
+            item.id === videoId
+              ? {
+                  ...item,
+                  progress: 0,
+                  status: "backend_error",
+                  analysisMessage: message,
+                }
+              : item,
+          ),
+        );
+      });
   }
 
   function selectSkill(skillId: string) {
