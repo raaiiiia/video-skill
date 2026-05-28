@@ -2,6 +2,8 @@
 
 产品原型级 Demo，面向设计师、数字媒体从业者，以及 Photoshop / Illustrator / Lightroom 学习者。
 
+线上访问：https://video-skill.vercel.app
+
 ## 项目结构
 
 ```text
