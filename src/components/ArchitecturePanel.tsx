@@ -3,7 +3,7 @@ export function ArchitecturePanel() {
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="rounded-lg border border-line bg-white p-4 shadow-command">
         <h2 className="text-sm font-semibold text-ink">后端 API 与数据库结构</h2>
-        <pre className="mt-3 overflow-auto rounded-md bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{`POST   /api/videos/upload
+        <pre className="mt-3 overflow-hidden rounded-md bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{`POST   /api/videos/upload
 GET    /api/jobs/{job_id}
 WS     /ws/jobs/{job_id}
 GET    /api/skills?software=&level=&tag=
@@ -30,7 +30,7 @@ metadata: software, tags, level, quality, updated_at`}</pre>
       </div>
       <div className="rounded-lg border border-line bg-white p-4 shadow-command">
         <h2 className="text-sm font-semibold text-ink">AI 处理流程</h2>
-        <pre className="mt-3 overflow-auto rounded-md bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{`1. Ingest
+        <pre className="mt-3 overflow-hidden rounded-md bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{`1. Ingest
    - 校验格式、生成 video_id、写入异步任务队列
 
 2. Extract

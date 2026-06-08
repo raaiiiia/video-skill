@@ -18,4 +18,5 @@ venv/
 storage/
 uploads/
 tmp/
+data/
 地址.txt

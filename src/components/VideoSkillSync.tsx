@@ -23,6 +23,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
   const playerRef = useRef<Player | null>(null);
   const [mediaError, setMediaError] = useState<string | null>(null);
   const isWebpageVideo = sourceKind === "webpage";
+  const isImage = Boolean(videoType?.startsWith("image/"));
   const hasVideo = Boolean(videoSource);
   const hasEmbeddedVideo = Boolean(isWebpageVideo && videoEmbedUrl);
 
@@ -36,6 +37,15 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
     if (isWebpageVideo) {
       playerRef.current?.pause();
       playerRef.current?.reset();
+      setMediaError(null);
+      return;
+    }
+
+    if (isImage) {
+      playerRef.current?.pause();
+      playerRef.current?.reset();
+      playerRef.current?.dispose();
+      playerRef.current = null;
       setMediaError(null);
       return;
     }
@@ -70,7 +80,7 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
       player.pause();
       player.reset();
     };
-  }, [handleTimeUpdate, isWebpageVideo, videoSource, videoType]);
+  }, [handleTimeUpdate, isImage, isWebpageVideo, videoSource, videoType]);
 
   useEffect(() => {
     return () => {
@@ -89,8 +99,8 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
   }
 
   return (
-    <section className="grid min-h-[650px] gap-4 xl:grid-cols-[minmax(0,1.35fr)_420px]">
-      <div className="overflow-hidden rounded-lg border border-line bg-white shadow-command">
+    <section className="grid h-full min-h-0 grid-cols-[minmax(0,1fr)_320px] gap-3">
+      <div className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-line bg-white shadow-command">
         <div className="flex h-11 items-center justify-between border-b border-line px-4">
           <div>
             <h2 className="text-sm font-semibold text-ink">视频播放与操作识别</h2>
@@ -102,8 +112,8 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
           </div>
         </div>
 
-        <div className="bg-[#05070B] p-4">
-          <div className="relative grid aspect-video min-h-[360px] overflow-hidden rounded-md bg-black ring-1 ring-white/10">
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center bg-white p-4">
+          <div className="relative grid aspect-[4/3] h-auto max-h-full w-full max-w-[900px] overflow-hidden rounded-lg bg-black ring-1 ring-slate-200 shadow-inner">
             {hasEmbeddedVideo ? (
               <iframe
                 src={videoEmbedUrl}
@@ -113,6 +123,8 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
                 allowFullScreen
                 referrerPolicy="strict-origin-when-cross-origin"
               />
+            ) : hasVideo && isImage ? (
+              <img src={videoSource ?? undefined} alt="Uploaded media" className="h-full w-full object-contain bg-black" />
             ) : hasVideo && isWebpageVideo ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
                 <div className="grid h-14 w-14 place-items-center rounded-full bg-white/8 ring-1 ring-white/12">
@@ -133,13 +145,13 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
               </div>
             )}
           </div>
-          {mediaError && <p className="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{mediaError}</p>}
-          {hasEmbeddedVideo && <p className="mt-3 rounded-md border border-line bg-white/5 px-3 py-2 text-xs leading-5 text-white/70">网页播放器由原平台加载，本站只保存链接和嵌入地址。跨域 iframe 不能直接读取逐帧画面或播放时间，Skill 生成仍需要真实后端/API 结果。</p>}
+          {mediaError && <p className="mt-3 w-full max-w-[900px] rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{mediaError}</p>}
+          {hasEmbeddedVideo && <p className="mt-3 w-full max-w-[900px] rounded-md border border-line bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">网页播放器由原平台加载，本站只保存链接和嵌入地址。跨域 iframe 不能直接读取逐帧画面或播放时间，Skill 生成仍需要真实后端/API 结果。</p>}
         </div>
 
-        <div className="grid gap-3 border-t border-line p-4 md:grid-cols-3">
+        <div className="grid shrink-0 gap-2 border-t border-line p-3 md:grid-cols-3">
           {recognitionCards.map((card) => (
-            <div key={card.title} className="min-h-[86px] rounded-md border border-line bg-[#FBFCFE] p-3">
+            <div key={card.title} className="min-h-[72px] rounded-md border border-line bg-[#FBFCFE] p-2.5">
               <p className="text-xs font-semibold text-ink">{card.title}</p>
               <p className="mt-1 text-[11px] leading-4 text-slate-500">{hasVideo ? card.ready : "暂无视频，等待真实识别结果。"}</p>
             </div>
@@ -147,14 +159,14 @@ export function VideoSkillSync({ skills, activeSkill, currentTime, videoSource, 
         </div>
       </div>
 
-      <div className="rounded-lg border border-line bg-white shadow-command">
+      <div className="flex min-h-0 flex-col rounded-lg border border-line bg-white shadow-command">
         <div className="flex h-11 items-center justify-between border-b border-line px-4">
           <h2 className="text-sm font-semibold text-ink">Skill 实时显示面板</h2>
           <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">Live</span>
         </div>
-        <div className="space-y-3 p-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-hidden p-3">
           {skills.length === 0 && (
-            <div className="grid min-h-[470px] place-items-center rounded-md border border-dashed border-line bg-[#FBFCFE] p-6 text-center">
+            <div className="grid h-full min-h-0 place-items-center rounded-md border border-dashed border-line bg-[#FBFCFE] p-6 text-center">
               <div>
                 <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10">
                   <Play className="h-5 w-5 text-primary" />

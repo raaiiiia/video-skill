@@ -1,4 +1,4 @@
-export type Software = "Photoshop" | "Illustrator" | "Lightroom";
+export type Software = string;
 export type SkillLevel = "Beginner" | "Intermediate" | "Advanced" | "Expert";
 
 export interface Skill {
@@ -16,8 +16,34 @@ export interface Skill {
   confidence: number;
   quality: number;
   evidenceCount: number;
+  evidenceIds?: string[];
+  operationId?: string;
   parentId?: string;
   variantOf?: string;
+}
+
+export interface EvidenceItem {
+  id: string;
+  job_id?: string | null;
+  type: string;
+  source: string;
+  text: string;
+  timestamp?: number | null;
+  confidence: number;
+  weight: number;
+}
+
+export interface OperationCandidate {
+  id: string;
+  operation: string;
+  label: string;
+  software: Software | string;
+  category: string;
+  matched_keywords: string[];
+  evidence_ids: string[];
+  timestamps: number[];
+  confidence: number;
+  quality: number;
 }
 
 export interface SkillNode {
@@ -34,7 +60,19 @@ export interface UploadItem {
   name: string;
   size: string;
   progress: number;
-  status: "queued" | "extracting" | "asr" | "ocr" | "vision" | "graph" | "done" | "needs_provider_data" | "needs_media_access" | "backend_error";
+  status:
+    | "queued"
+    | "extracting"
+    | "asr"
+    | "ocr"
+    | "vision"
+    | "graph"
+    | "done"
+    | "needs_provider_data"
+    | "needs_media_access"
+    | "needs_skill_evidence"
+    | "provider_error"
+    | "backend_error";
   sourceUrl?: string;
   embedUrl?: string;
   mediaType?: string;
@@ -44,6 +82,12 @@ export interface UploadItem {
   temporary?: boolean;
   backendJobId?: string;
   analysisMessage?: string;
+  evidenceScore?: number;
+  evidenceCount?: number;
+  operationCount?: number;
+  suggestions?: string[];
+  resolvedMediaUrl?: string;
+  provider?: string;
 }
 
 export interface PipelineStage {

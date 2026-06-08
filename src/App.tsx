@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { Layers3, PlaySquare, SearchCheck, UploadCloud, X } from "lucide-react";
 import { ArchitecturePanel } from "./components/ArchitecturePanel";
+import { AuthPage, type AccountProfile } from "./components/AuthPage";
 import { Header } from "./components/Header";
 import { OptimizationPanel } from "./components/OptimizationPanel";
 import { SearchResults } from "./components/SearchResults";
 import { SkillTree } from "./components/SkillTree";
 import { UploadPanel } from "./components/UploadPanel";
 import { VideoSkillSync } from "./components/VideoSkillSync";
-import { analyzeVideoLink } from "./lib/backend";
+import { analyzeVideoLink, clearAuthSession, fetchCurrentAccount, fetchSkills, uploadMediaFile } from "./lib/backend";
 import { activeSkillAtTime, searchSkills } from "./lib/skillEngine";
 import type { PipelineStage, Skill, SkillNode, UploadItem } from "./types";
 
@@ -16,6 +17,42 @@ const savedSkillsKey = "ps-skill.savedSkills";
 const savedVideosKey = "ps-skill.savedVideoLinks";
 const legacyDemoVideoSource = "https://vjs.zencdn.net/v/oceans.mp4";
 const legacyMockSkillIds = new Set(["skill_001", "skill_002", "skill_003", "skill_004"]);
+
+type WorkspaceSection = "ingest" | "review" | "search";
+
+const workspaceSections = [
+  {
+    id: "ingest",
+    title: "上传视频和视频处理",
+    detail: "导入视频、提交证据、查看处理进度",
+    icon: UploadCloud,
+  },
+  {
+    id: "review",
+    title: "视频播放和 Skill 导航",
+    detail: "同步播放、定位片段、浏览技能树",
+    icon: PlaySquare,
+  },
+  {
+    id: "search",
+    title: "检索系统",
+    detail: "按关键词、标签、软件和步骤查找",
+    icon: SearchCheck,
+  },
+] satisfies Array<{
+  id: WorkspaceSection;
+  title: string;
+  detail: string;
+  icon: typeof UploadCloud;
+}>;
+
+function inferResolvedVideoType(sourceUrl: string) {
+  const clean = sourceUrl.split("?")[0].toLowerCase();
+  if (clean.endsWith(".m3u8")) return "application/x-mpegURL";
+  if (clean.endsWith(".webm")) return "video/webm";
+  if (clean.endsWith(".mov")) return "video/quicktime";
+  return "video/mp4";
+}
 
 const pipelineStages: PipelineStage[] = [
   { id: "frames", label: "视频抽帧", detail: "等待真实后端任务返回抽帧进度", progress: 0 },
@@ -124,16 +161,25 @@ interface VideoImportPayload {
   sourceUrl: string;
   name: string;
   size: string;
+  file?: File;
   embedUrl?: string;
   mediaType?: string;
   sourceKind?: UploadItem["sourceKind"];
   temporary?: boolean;
+  evidenceText?: string;
+  transcriptText?: string;
+  ocrText?: string;
+  visualNotes?: string;
+  userNote?: string;
+  software?: string;
+  targetLevel?: string;
 }
 
 export function App() {
   const [query, setQuery] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<WorkspaceSection>("ingest");
   const [savedSkills, setSavedSkills] = useState<Skill[]>(() => sanitizeSavedSkills(readSavedJson<Skill[]>(savedSkillsKey, [])));
   const [savedVideos, setSavedVideos] = useState<UploadItem[]>(() => sanitizeSavedVideos(readSavedJson<UploadItem[]>(savedVideosKey, [])));
   const [videoSource, setVideoSource] = useState<string | null>(null);
@@ -141,6 +187,8 @@ export function App() {
   const [videoSourceKind, setVideoSourceKind] = useState<UploadItem["sourceKind"] | undefined>(undefined);
   const [videoType, setVideoType] = useState<string | undefined>(undefined);
   const [systemOpen, setSystemOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [account, setAccount] = useState<AccountProfile | null>(null);
   const temporaryVideoUrl = useRef<string | null>(null);
 
   const hasWorkspaceData = savedSkills.length > 0 || savedVideos.length > 0;
@@ -150,6 +198,39 @@ export function App() {
   const timeSkill = activeSkillAtTime(visibleSkills, currentTime);
   const activeSkill = visibleSkills.find((skill) => skill.id === selectedSkillId) ?? timeSkill;
   const results = useMemo(() => searchSkills(visibleSkills, query), [query, visibleSkills]);
+
+  useEffect(() => {
+    if (query.trim()) setActiveSection("search");
+  }, [query]);
+
+  useEffect(() => {
+    let active = true;
+    void fetchCurrentAccount()
+      .then((profile) => {
+        if (active) setAccount(profile);
+      })
+      .catch(() => {
+        clearAuthSession();
+        if (active) setAccount(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void fetchSkills()
+      .then((remoteSkills) => {
+        if (active && remoteSkills.length > 0) {
+          setSavedSkills((previous) => mergeSkills(previous, remoteSkills));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(savedSkillsKey, JSON.stringify(savedSkills));
@@ -172,9 +253,29 @@ export function App() {
     };
   }, []);
 
-  function importVideo({ sourceUrl, name, size, embedUrl, mediaType, sourceKind, temporary }: VideoImportPayload) {
+  function importVideo({
+    sourceUrl,
+    name,
+    size,
+    file,
+    embedUrl,
+    mediaType,
+    sourceKind,
+    temporary,
+    evidenceText,
+    transcriptText,
+    ocrText,
+    visualNotes,
+    userNote,
+    software,
+    targetLevel,
+  }: VideoImportPayload) {
     const source = sourceUrl.trim();
     if (!source) return;
+    if (!account) {
+      setAuthOpen(true);
+      return;
+    }
     const nextSourceKind = sourceKind ?? (temporary ? "file" : "direct");
 
     if (temporaryVideoUrl.current && temporaryVideoUrl.current !== source) {
@@ -189,8 +290,8 @@ export function App() {
       id: videoId,
       name: note,
       size,
-      progress: temporary ? 100 : 5,
-      status: temporary ? "done" : "queued",
+      progress: 5,
+      status: "queued",
       sourceUrl: temporary ? undefined : source,
       embedUrl,
       mediaType,
@@ -208,32 +309,77 @@ export function App() {
     window.setTimeout(() => setVideoSource(source), 0);
     setSelectedSkillId(null);
     setCurrentTime(0);
+    setActiveSection("review");
 
-    if (temporary) return;
+    const analysisRequest = file
+      ? uploadMediaFile({
+          file,
+          sourceUrl: sourceKind === "direct" ? source : undefined,
+          embedUrl,
+          sourceKind: nextSourceKind,
+          evidenceText: evidenceText || (temporary ? name : undefined),
+          transcriptText,
+          ocrText,
+          visualNotes,
+          userNote,
+          software,
+          targetLevel,
+        })
+      : analyzeVideoLink({
+          sourceUrl: source,
+          embedUrl,
+          sourceKind: nextSourceKind,
+          evidenceText: evidenceText || (temporary ? name : undefined),
+          transcriptText,
+          ocrText,
+          visualNotes,
+          userNote,
+          software,
+          targetLevel,
+        });
 
-    void analyzeVideoLink({ sourceUrl: source, embedUrl, sourceKind: nextSourceKind })
+    void analysisRequest
       .then((result) => {
         if (result.skills.length > 0) {
           setSavedSkills((previous) => mergeSkills(previous, result.skills));
+        }
+        if (result.resolved_media_url) {
+          setVideoSource(null);
+          setVideoEmbedUrl(undefined);
+          setVideoSourceKind("direct");
+          setVideoType(inferResolvedVideoType(result.resolved_media_url));
+          window.setTimeout(() => setVideoSource(result.resolved_media_url ?? source), 0);
         }
         setSavedVideos((previous) =>
           previous.map((item) => {
             if (item.id !== videoId) return item;
             const nextNote = result.skills.length > 0 ? buildVideoNote(source, result.skills) : source;
+            const hasResolvedMedia = Boolean(result.resolved_media_url);
             return {
               ...item,
               name: nextNote,
               note: nextNote,
-              progress: result.skills.length > 0 ? 100 : 0,
+              progress: result.skills.length > 0 ? 100 : hasResolvedMedia ? 35 : 0,
               status: result.skills.length > 0 ? "done" : (result.status as UploadItem["status"]),
               backendJobId: result.job_id,
               analysisMessage: result.message,
+              evidenceScore: result.evidence_score,
+              evidenceCount: result.evidence.length,
+              operationCount: result.operations.length,
+              suggestions: result.suggestions,
+              resolvedMediaUrl: result.resolved_media_url ?? undefined,
+              provider: result.provider ?? undefined,
             };
           }),
         );
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Backend analysis request failed";
+        if (message.includes("401")) {
+          clearAuthSession();
+          setAccount(null);
+          setAuthOpen(true);
+        }
         setSavedVideos((previous) =>
           previous.map((item) =>
             item.id === videoId
@@ -254,61 +400,165 @@ export function App() {
     if (!next) return;
     setSelectedSkillId(skillId);
     setCurrentTime(next.start);
+    setActiveSection("review");
+  }
+
+  function runSearch() {
+    void fetchSkills()
+      .then((remoteSkills) => {
+        if (remoteSkills.length > 0) {
+          setSavedSkills((previous) => mergeSkills(previous, remoteSkills));
+        }
+      })
+      .catch(() => undefined);
+    setActiveSection("search");
+  }
+
+  if (authOpen) {
+    return (
+      <AuthPage
+        onBack={() => setAuthOpen(false)}
+        onAuthenticated={(profile) => {
+          setAccount(profile);
+          setAuthOpen(false);
+        }}
+      />
+    );
   }
 
   return (
-    <div className="min-h-dvh bg-canvas font-ui text-ink">
-      <Header query={query} onQueryChange={setQuery} onOpenSystem={() => setSystemOpen(true)} />
-      <main className="mx-auto flex max-w-[1800px] flex-col gap-4 p-4">
-        <motion.section initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-line bg-white p-4 shadow-command">
-          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">AI Skill Knowledge OS</p>
-              <h1 className="mt-2 text-2xl font-semibold text-ink">从创意软件教学视频中提取专业 Skill，并持续构建知识树</h1>
-              <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
-                上传本地视频或粘贴公开视频链接后，系统会联合分析画面、语音、OCR、界面结构、工具路径与操作行为，生成接近专业教程 SOP 和知识图谱节点的 Skill 库。
-              </p>
-            </div>
-            <div className="grid min-w-[320px] grid-cols-3 gap-2">
-              {[
-                ["视频", visibleUploads.length.toString()],
-                ["Skill", visibleSkills.length.toString()],
-                ["任务", hasWorkspaceData ? "运行中" : "待输入"],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-md border border-line bg-[#FBFCFE] p-3 text-center">
-                  <p className="font-mono text-xl font-semibold text-ink">{value}</p>
-                  <p className="text-[11px] text-slate-500">{label}</p>
+    <div className="flex h-dvh overflow-hidden bg-canvas font-ui text-ink">
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header
+          query={query}
+          onQueryChange={setQuery}
+          onSearch={runSearch}
+          onOpenSystem={() => setSystemOpen(true)}
+          accountName={account?.name}
+          onOpenAuth={() => setAuthOpen(true)}
+        />
+        <main className="grid min-h-0 flex-1 grid-cols-[212px_minmax(0,1fr)] overflow-hidden">
+          <aside className="flex min-h-0 flex-col border-r border-line bg-white">
+            <div className="border-b border-line p-3">
+              <div className="flex items-center gap-2">
+                <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
+                  <Layers3 className="h-4 w-4" />
                 </div>
-              ))}
+                <div>
+                  <p className="text-sm font-semibold text-ink">功能目录</p>
+                  <p className="text-[11px] text-slate-500">一屏完成主要操作</p>
+                </div>
+              </div>
+              <div className="mt-3 grid grid-cols-3 gap-1.5">
+                {[
+                  ["视频", visibleUploads.length.toString()],
+                  ["Skill", visibleSkills.length.toString()],
+                  ["状态", hasWorkspaceData ? "运行" : "待输入"],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-md border border-line bg-[#FBFCFE] p-1.5 text-center">
+                    <p className="truncate font-mono text-sm font-semibold text-ink">{value}</p>
+                    <p className="text-[10px] text-slate-500">{label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </motion.section>
 
-        <UploadPanel uploads={visibleUploads} stages={pipelineStages} hasWorkspaceData={hasWorkspaceData} onImportVideo={importVideo} />
+            <nav className="min-h-0 flex-1 space-y-2 overflow-hidden p-2.5">
+              {workspaceSections.map((item) => {
+                const Icon = item.icon;
+                const active = activeSection === item.id;
+                const meta =
+                  item.id === "ingest"
+                    ? `${visibleUploads.length} 个视频`
+                    : item.id === "review"
+                      ? `${visibleSkills.length} 个 Skill`
+                      : query.trim()
+                        ? `检索：${query.trim()}`
+                        : "关键词检索";
 
-        <div className="grid gap-4 xl:grid-cols-[310px_minmax(0,1fr)]">
-          <div className="min-h-[650px]">
-            <SkillTree nodes={visibleTree} selectedSkillId={activeSkill?.id} onSelectSkill={selectSkill} />
-          </div>
-          <VideoSkillSync
-            skills={visibleSkills}
-            activeSkill={activeSkill}
-            currentTime={currentTime}
-            videoSource={videoSource}
-            videoEmbedUrl={videoEmbedUrl}
-            sourceKind={videoSourceKind}
-            videoType={videoType}
-            onTimeChange={(seconds) => {
-              setCurrentTime(seconds);
-              const matched = activeSkillAtTime(visibleSkills, seconds);
-              if (matched && matched.id !== selectedSkillId) setSelectedSkillId(matched.id);
-            }}
-            onSelectSkill={(skill) => selectSkill(skill.id)}
-          />
-        </div>
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveSection(item.id)}
+                    className={`w-full rounded-md border p-2.5 text-left transition ${
+                      active ? "border-primary bg-primary/6 shadow-command" : "border-transparent bg-white hover:border-line hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-md ${active ? "bg-primary text-white" : "bg-slate-100 text-slate-600"}`}>
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold leading-5 text-ink">{item.title}</span>
+                        <span className="mt-1 block text-[11px] leading-4 text-slate-500">{item.detail}</span>
+                        <span className="mt-1.5 block truncate font-mono text-[11px] text-primary">{meta}</span>
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
 
-        {(query || hasWorkspaceData) && <SearchResults query={query} results={results} onSelectSkill={selectSkill} />}
-      </main>
+          <section className="min-h-0 min-w-0 overflow-hidden p-3">
+            <AnimatePresence mode="wait">
+              {activeSection === "ingest" && (
+                <motion.section
+                  key="ingest"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="h-full min-h-0 overflow-hidden"
+                >
+                  <UploadPanel uploads={visibleUploads} stages={pipelineStages} hasWorkspaceData={hasWorkspaceData} onImportVideo={importVideo} />
+                </motion.section>
+              )}
+
+              {activeSection === "review" && (
+                <motion.section
+                  key="review"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="grid h-full min-h-0 grid-cols-[236px_minmax(0,1fr)] gap-3"
+                >
+                  <div className="min-h-0">
+                    <SkillTree nodes={visibleTree} selectedSkillId={activeSkill?.id} onSelectSkill={selectSkill} />
+                  </div>
+                  <VideoSkillSync
+                    skills={visibleSkills}
+                    activeSkill={activeSkill}
+                    currentTime={currentTime}
+                    videoSource={videoSource}
+                    videoEmbedUrl={videoEmbedUrl}
+                    sourceKind={videoSourceKind}
+                    videoType={videoType}
+                    onTimeChange={(seconds) => {
+                      setCurrentTime(seconds);
+                      const matched = activeSkillAtTime(visibleSkills, seconds);
+                      if (matched && matched.id !== selectedSkillId) setSelectedSkillId(matched.id);
+                    }}
+                    onSelectSkill={(skill) => selectSkill(skill.id)}
+                  />
+                </motion.section>
+              )}
+
+              {activeSection === "search" && (
+                <motion.section
+                  key="search"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="h-full min-h-0 overflow-hidden"
+                >
+                  <SearchResults query={query} results={results} onSelectSkill={selectSkill} />
+                </motion.section>
+              )}
+            </AnimatePresence>
+          </section>
+        </main>
+      </div>
 
       <AnimatePresence>
         {systemOpen && (
@@ -318,7 +568,7 @@ export function App() {
               initial={{ x: 48, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 48, opacity: 0 }}
-              className="absolute right-0 top-0 h-full w-[min(1120px,calc(100vw-24px))] overflow-auto border-l border-line bg-canvas shadow-fluent"
+              className="absolute right-0 top-0 h-full w-[min(1120px,calc(100vw-24px))] overflow-hidden border-l border-line bg-canvas shadow-fluent"
             >
               <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-line bg-white/90 px-4 backdrop-blur-xl">
                 <div>

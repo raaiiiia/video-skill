@@ -57,7 +57,7 @@ export function OptimizationPanel({ skill }: OptimizationPanelProps) {
         </div>
         <div className="mt-4 rounded-md border border-line bg-[#FBFCFE] p-4">
           <p className="text-xs font-semibold text-ink">当前 Skill 结构</p>
-          <pre className="mt-3 overflow-auto rounded bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{JSON.stringify(skillOutline, null, 2)}</pre>
+          <pre className="mt-3 overflow-hidden rounded bg-[#0F172A] p-4 font-mono text-xs leading-6 text-slate-100">{JSON.stringify(skillOutline, null, 2)}</pre>
         </div>
       </div>
       <div className="rounded-lg border border-line bg-white p-4 shadow-command">

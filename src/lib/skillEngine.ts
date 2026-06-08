@@ -1,4 +1,5 @@
 import type { SearchResult, Skill } from "../types";
+import { expandSearchTerms, rankKnowledgeTopics } from "./skillKnowledge";
 
 export function confidenceProjection(skill: Skill) {
   const base = 0.6;
@@ -29,31 +30,42 @@ export function searchSkills(skills: Skill[], query: string): SearchResult[] {
     }));
   }
 
-  const intentBoosts: Record<string, string[]> = {
-    高光: ["高光", "Camera Raw", "动态范围"],
-    压高光: ["高光", "Camera Raw", "动态范围"],
-    曝光: ["曝光", "曲线", "蒙版"],
-    抠图: ["抠图", "钢笔工具", "路径"],
-    快捷键: ["Ctrl", "Alt", "B", "P"],
-  };
+  const queryTerms = expandSearchTerms(query);
+  const queryTopics = rankKnowledgeTopics(query);
 
   return skills
     .map((skill) => {
-      const text = [skill.skill_name, skill.description, ...skill.tags, ...skill.shortcut, ...skill.steps].join(" ").toLowerCase();
-      let score = text.includes(normalized) ? 88 : 48;
-      Object.entries(intentBoosts).forEach(([intent, terms]) => {
-        if (normalized.includes(intent.toLowerCase())) {
-          score += terms.filter((term) => text.includes(term.toLowerCase())).length * 12;
-        }
+      const text = [skill.software, skill.level, skill.skill_name, skill.description, ...skill.tags, ...skill.shortcut, ...skill.steps].join(" ").toLowerCase();
+      let score = text.includes(normalized) ? 72 : 0;
+
+      queryTerms.forEach((term) => {
+        if (text.includes(term)) score += term.length > 2 ? 12 : 7;
       });
-      score += Math.round(skill.confidence * 8);
+
+      skill.tags.forEach((tag) => {
+        const term = tag.toLowerCase();
+        if (term && (normalized.includes(term) || term.includes(normalized))) score += 14;
+      });
+
+      skill.shortcut.forEach((shortcut) => {
+        const term = shortcut.toLowerCase();
+        if (term && normalized.includes(term)) score += 18;
+      });
+
+      const skillTopics = rankKnowledgeTopics(text);
+      queryTopics.forEach((queryTopic) => {
+        const matched = skillTopics.find((item) => item.topic.id === queryTopic.topic.id);
+        if (matched) score += Math.min(28, Math.round((queryTopic.score + matched.score) / 6));
+      });
+
+      if (score > 0) score += Math.round(skill.confidence * 8);
       return {
         skill,
         path: `${skill.software} > ${skill.tags[0] ?? "Skill"} > ${skill.skill_name}`,
         score: Math.min(99, score),
       };
     })
-    .filter((result) => result.score > 58)
+    .filter((result) => result.score > 0)
     .sort((a, b) => b.score - a.score);
 }
 

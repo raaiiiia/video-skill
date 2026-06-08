@@ -39,18 +39,18 @@ export function SkillTree({ nodes, selectedSkillId, onSelectSkill }: SkillTreePr
 
   return (
     <aside className="h-full overflow-hidden rounded-lg border border-line bg-white shadow-command">
-      <div className="flex h-11 items-center justify-between border-b border-line px-3">
+      <div className="flex h-11 items-center justify-between border-b border-line px-2.5">
         <div>
           <h2 className="text-sm font-semibold text-ink">Skill 导航树</h2>
-          <p className="text-[11px] text-slate-500">Explorer 层级 / 可拖拽归类</p>
+          <p className="text-[10px] text-slate-500">Explorer 层级 / 可拖拽归类</p>
         </div>
         <button aria-label="新增节点" className="grid h-8 w-8 place-items-center rounded-md hover:bg-slate-100">
           <Plus className="h-4 w-4 text-slate-500" />
         </button>
       </div>
-      <div className="h-[calc(100%-44px)] overflow-auto p-2">
+      <div className="h-[calc(100%-44px)] overflow-hidden p-1.5">
         {nodes.length === 0 ? (
-          <div className="grid h-full min-h-[560px] place-items-center rounded-md border border-dashed border-line bg-[#FBFCFE] p-6 text-center">
+          <div className="grid h-full min-h-0 place-items-center rounded-md border border-dashed border-line bg-[#FBFCFE] p-6 text-center">
             <div>
               <Folder className="mx-auto h-8 w-8 text-slate-400" />
               <p className="mt-3 text-sm font-semibold text-ink">暂无知识树</p>
@@ -98,16 +98,16 @@ function TreeNode({
           event.preventDefault();
           onMenu(menuNode === node.id ? null : node.id);
         }}
-        className={`group relative flex h-8 cursor-default select-none items-center gap-1 rounded px-1 text-xs transition ${
+        className={`group relative flex h-7 cursor-default select-none items-center gap-1 rounded px-1 text-xs transition ${
           selected ? "bg-primary/10 text-primary" : "text-slate-700 hover:bg-slate-100"
         }`}
         style={{ paddingLeft: depth * 14 + 4 }}
       >
-        <ChevronRight className={`h-3.5 w-3.5 transition ${hasChildren && isExpanded ? "rotate-90" : ""} ${hasChildren ? "opacity-100" : "opacity-0"}`} />
-        {hasChildren && isExpanded ? <FolderOpen className="h-4 w-4 text-[#C8972C]" /> : <Folder className="h-4 w-4 text-[#C8972C]" />}
+        <ChevronRight className={`h-3 w-3 transition ${hasChildren && isExpanded ? "rotate-90" : ""} ${hasChildren ? "opacity-100" : "opacity-0"}`} />
+        {hasChildren && isExpanded ? <FolderOpen className="h-3.5 w-3.5 text-[#C8972C]" /> : <Folder className="h-3.5 w-3.5 text-[#C8972C]" />}
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
         <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">{node.count}</span>
-        <button aria-label={`打开 ${node.name} 菜单`} className="grid h-6 w-6 place-items-center rounded opacity-0 hover:bg-white group-hover:opacity-100">
+        <button aria-label={`打开 ${node.name} 菜单`} className="grid h-5 w-5 place-items-center rounded opacity-0 hover:bg-white group-hover:opacity-100">
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
         {menuNode === node.id && (
